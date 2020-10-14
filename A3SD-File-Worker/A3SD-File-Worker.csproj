@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netcoreapp3.1</TargetFramework>
+    <RootNamespace>A3SD_File_Worker</RootNamespace>
+    <AssemblyName>A3SD-FW</AssemblyName>
+    <Configurations>Debug;Release;Debug Win;Release Win</Configurations>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug Win|AnyCPU'">
+    <Optimize>false</Optimize>
+    <DefineConstants>TRACE;windows</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release Win|AnyCPU'">
+    <Optimize>true</Optimize>
+    <DefineConstants>TRACE;windows</DefineConstants>
+  </PropertyGroup>
+
+</Project>

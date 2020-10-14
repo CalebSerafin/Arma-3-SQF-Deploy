@@ -1,0 +1,30 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.30413.136
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "A3SD-File-Worker", "A3SD-File-Worker\A3SD-File-Worker.csproj", "{945072DF-B23E-4595-9A6E-6971A07B149A}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{E75644FE-FCDB-492A-B61B-8FF33A386F9B}"
+	ProjectSection(SolutionItems) = preProject
+		README.md = README.md
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{945072DF-B23E-4595-9A6E-6971A07B149A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{945072DF-B23E-4595-9A6E-6971A07B149A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{945072DF-B23E-4595-9A6E-6971A07B149A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{945072DF-B23E-4595-9A6E-6971A07B149A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {3664E128-6F13-4B04-ADD8-C38B345373CC}
+	EndGlobalSection
+EndGlobal

@@ -1,19 +1,11 @@
-using System;
-using System.Collections;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
-using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace A3SD_File_Worker {
 	public class FileCopyWorkerAsync {
-		public FileCopyWorkerAsync(int maxConcurrentTasks = 6) {
-			this.concurrentTasks = maxConcurrentTasks;
+		public FileCopyWorkerAsync() {
 		}
 
 		public void ApplyLargeCopyOptimisationPreset() {
@@ -21,7 +13,6 @@ namespace A3SD_File_Worker {
 			readWriteStreamBuffer = 16_777_216;
 		}
 
-		private string outputDirectory;
 		private ConcurrentQueue<InOutPath> copyJobs = new ConcurrentQueue<InOutPath>();
 		private int concurrentTasks = 6;
 		public int readWriteStreamBuffer = 32_768;
@@ -61,23 +52,29 @@ namespace A3SD_File_Worker {
 			if (!sourceDir.Exists) {
 				throw new DirectoryNotFoundException("Could not find '" + sourcePath + "'");
 			}
-			outputDirectory = outputPath;
 			foreach (DirectoryInfo dir in sourceDir.EnumerateDirectories("*", new EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = true })) {
 				Directory.CreateDirectory(Path.Combine(outputPath, Path.GetRelativePath(sourcePath, dir.FullName)));
 			}
 
 			CancellationTokenSource streamComplete = new CancellationTokenSource();
 			Task[] ThreadedTasks = new Task[concurrentTasks];
-			for (int i = 0; i < concurrentTasks; i++) {
-				ThreadedTasks[i] = CreateCopyTask(streamComplete.Token, cancel);
+			try {
+				for (int i = 0; i < concurrentTasks; i++) {
+					ThreadedTasks[i] = CreateCopyTask(streamComplete.Token, cancel);
+				}
+				foreach (FileInfo file in sourceDir.EnumerateFiles("*", new EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = true })) {
+					string targetFilePath = Path.Combine(outputPath, Path.GetRelativePath(sourcePath, file.FullName));
+					if (!ReplaceAll && file.LastWriteTime <= new FileInfo(targetFilePath).LastWriteTime) continue;
+					copyJobs.Enqueue(new InOutPath(file.FullName, targetFilePath));
+				}
+				streamComplete.Cancel();
+				await Task.WhenAll(ThreadedTasks);
+			} finally {
+				foreach (Task task in ThreadedTasks) {
+					task.Dispose();
+				}
+				streamComplete.Dispose();
 			}
-			foreach (FileInfo file in sourceDir.EnumerateFiles("*", new EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = true })) {
-				string targetFilePath = Path.Combine(outputDirectory, Path.GetRelativePath(sourcePath, file.FullName));
-				if (!ReplaceAll && file.LastWriteTime <= new FileInfo(targetFilePath).LastWriteTime) continue;
-				copyJobs.Enqueue(new InOutPath(file.FullName, targetFilePath));
-			}
-			streamComplete.Cancel();
-			await Task.WhenAll(ThreadedTasks);
 		}
 	}
 }

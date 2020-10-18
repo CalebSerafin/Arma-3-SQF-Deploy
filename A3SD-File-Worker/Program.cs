@@ -4,9 +4,12 @@
 // </copyright>
 
 using System;
+using System.Collections;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Pipes;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -29,26 +32,39 @@ namespace A3SD_File_Worker {
 			// string sourcePath = @"F:\Documents";
 			string sourcePath = @"F:\A3-doc-src";
 			string outputPath = @"F:\Doc2";
-
+			
 			Console.WriteLine(CountAccessibleFiles(sourcePath) + " files in '" + sourcePath + "' ");
 			Console.WriteLine("Press key to start");
 			Console.ReadKey(); Console.WriteLine();
-			Console.WriteLine("Enter cancel to stop.");
 
 			Stopwatch s = new Stopwatch();
+			CancellationTokenSource cancel = new CancellationTokenSource();
 
-			for (int i = 0; i < 1; i++) {
-				CancellationTokenSource cancel = new CancellationTokenSource();
+			for (int i = 0; i < 10; i++) {
 				FileCopyWorkerAsync fileCopier = new FileCopyWorkerAsync();
+				FileCopyWorkerAsync fileMerger = new FileCopyWorkerAsync();
+
 				s.Restart();
 				fileCopier.EnqueueJob(sourcePath, outputPath);
-				await fileCopier.StartJobs(cancel.Token);
-				Console.WriteLine(s.ElapsedMilliseconds + "ms");
-				s.Stop();
-				new DirectoryInfo(outputPath).Delete(true);
+				Console.WriteLine($"fileCopier enqueue time: {s.ElapsedMilliseconds}ms");
 
-				cancel.Dispose();
+				s.Restart();
+				await fileCopier.StartJobs(cancel.Token);
+				Console.WriteLine($"fileCopier run time: {s.ElapsedMilliseconds}ms");
+				//new DirectoryInfo(outputPath).Delete(true);
+
+				s.Restart();
+				fileMerger.EnqueueJob(sourcePath, outputPath);
+				Console.WriteLine($"fileMerger enqueue time: {s.ElapsedMilliseconds}ms");
+
+				s.Restart();
+				await fileMerger.StartJobs(cancel.Token);
+				Console.WriteLine($"fileMerger run time: {s.ElapsedMilliseconds}ms");
+				//new DirectoryInfo(outputPath).Delete(true);
+
 			}
+			s.Stop();
+			cancel.Dispose();
 
 			Console.WriteLine("Exec Done. Press key to exit.");
 			Console.ReadKey(); Console.WriteLine();

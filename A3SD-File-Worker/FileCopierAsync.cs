@@ -11,28 +11,21 @@ using System.Threading;
 using System.Threading.Tasks;
 
 namespace A3SD_File_Worker {
-	public class FileCopyWorkerAsync {
-		public bool ReplaceAll;
-		public int concurrentTasks;
-		public int readWriteStreamBufferSize;
-		private ImmutableArray<InOutPath> copyJobs = new ImmutableArray<InOutPath>();
-		private readonly ImmutableArray<InOutPath>.Builder copyJobsBuilder = ImmutableArray.CreateBuilder<InOutPath>();
-		private int copyJobIndex = -1;
-
+	public class FileCopierAsync {
+		public bool replaceAll = false;
+		public int concurrentTasks = 6;
+		public int RWBufferSize = 32_768;
 		private readonly List<InOutPath> directoryJobs = new List<InOutPath>();
-
-		public FileCopyWorkerAsync(bool ReplaceAll = false, int concurrentTasks = 6, int readWriteStreamBufferSize = 32_768) {
-			this.ReplaceAll = ReplaceAll;
-			this.concurrentTasks = concurrentTasks;
-			this.readWriteStreamBufferSize = readWriteStreamBufferSize;
-		}
+		private readonly ImmutableArray<InOutPath>.Builder copyJobsBuilder = ImmutableArray.CreateBuilder<InOutPath>();
+		private ImmutableArray<InOutPath> copyJobs = new ImmutableArray<InOutPath>();
+		private int copyJobIndex = -1;
 
 		public void ApplyLargeCopyOptimisationPreset() {
 			concurrentTasks = 2;
-			readWriteStreamBufferSize = 16_777_216;
+			RWBufferSize = 16_777_216;
 		}
 
-		public async Task StartJobs(CancellationToken cancel) {
+		public async Task CopyAsync(CancellationToken cancel) {
 			copyJobs = copyJobsBuilder.ToImmutable();
 			copyJobsBuilder.Clear();
 			foreach (InOutPath job in directoryJobs) {
@@ -44,53 +37,51 @@ namespace A3SD_File_Worker {
 			directoryJobs.Clear();
 			Task[] ThreadedTasks = new Task[concurrentTasks];
 			for (int i = 0; i < concurrentTasks; i++) {
-				ThreadedTasks[i] = CreateCopyTask(cancel);
+				ThreadedTasks[i] = CopyTask(cancel);
 			}
 			await Task.WhenAll(ThreadedTasks);
 		}
 
-		public void EnqueueJob(string source, string output) => EnqueueJob(new InOutPath(source, output));
-		public void EnqueueJob(InOutPath job) {
+		public void Add(string source, string output) => Add(new InOutPath(source, output));
+		public void Add(InOutPath job) {
 			if (File.Exists(job.output)) {
-				EnqueueFileJob(job);
+				AddFile(job);
 			} else if (Directory.Exists(job.input)) {
-				EnqueueDirectoryJob(job);
+				AddDirectory(job);
 			} else {
 				throw new DirectoryNotFoundException("Could not find Directory/File '" + job.input + "'");
 			}
 		}
 
-		public void EnqueueDirectoryJob(string source, string output) => EnqueueDirectoryJob(new InOutPath(source, output));
-		public void EnqueueDirectoryJob(InOutPath job) {
+		public void AddDirectory(string source, string output) => AddDirectory(new InOutPath(source, output));
+		public void AddDirectory(InOutPath job) {
 			directoryJobs.Add(job);
 			foreach (FileInfo file in new DirectoryInfo(job.input).EnumerateFiles("*", new EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = true })) {
-				EnqueueFileJob(new InOutPath(file.FullName, Path.Combine(job.output, Path.GetRelativePath(job.input, file.FullName))));
+				AddFile(new InOutPath(file.FullName, Path.Combine(job.output, Path.GetRelativePath(job.input, file.FullName))));
 			}
 		}
 
-		public void EnqueueFileJob(string source, string output, bool createDirectory = false) => EnqueueFileJob(new InOutPath(source, output), createDirectory);
-		public void EnqueueFileJob(InOutPath job, bool createDirectory = false) {
-			if (ReplaceAll || new FileInfo(job.input).LastWriteTime > new FileInfo(job.output).LastWriteTime) {
-				if (createDirectory) Directory.CreateDirectory(Path.GetDirectoryName(job.output));
+		public void AddFile(string source, string output) => AddFile(new InOutPath(source, output));
+		public void AddFile(InOutPath job) {
+			if (replaceAll || new FileInfo(job.input).LastWriteTime > new FileInfo(job.output).LastWriteTime) {
 				copyJobsBuilder.Add(job);
 			}
 		}
 
 		private bool GetJob (out InOutPath job) {
 			int index = Interlocked.Increment(ref copyJobIndex);
-			if (index < copyJobs.Length) {
-				job = copyJobs[index];
-				return true;
-			} else {
+			if (index >= copyJobs.Length) {
 				job = new InOutPath();
 				return false;
-			}
+			};
+			job = copyJobs[index];
+			return true;
 		}
 
-		private async Task CreateCopyTask(CancellationToken cancel) {
+		private async Task CopyTask(CancellationToken cancel) {
 			while (!cancel.IsCancellationRequested && GetJob(out InOutPath job)) {
-				using FileStream reader = new FileStream(job.input, FileMode.Open, FileAccess.Read, FileShare.Read, readWriteStreamBufferSize, true);
-				using FileStream writer = new FileStream(job.output, FileMode.Create, FileAccess.Write, FileShare.None, readWriteStreamBufferSize, true);
+				using FileStream reader = new FileStream(job.input, FileMode.Open, FileAccess.Read, FileShare.Read, RWBufferSize, true);
+				using FileStream writer = new FileStream(job.output, FileMode.Create, FileAccess.Write, FileShare.None, RWBufferSize, true);
 				await reader.CopyToAsync(writer, cancel);
 				await reader.DisposeAsync();
 				await writer.DisposeAsync();

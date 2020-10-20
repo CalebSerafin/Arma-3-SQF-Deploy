@@ -14,28 +14,22 @@ using System.Threading;
 using System.Threading.Tasks;
 
 namespace A3SD_File_Worker {
-	public class FileMergeWorkerAsync {
-		public bool CleanOutput;
-		public int concurrentTasks;
-		public int readWriteStreamBufferSize;
-		private ImmutableArray<MergeInOutPath> mergeJobs = new ImmutableArray<MergeInOutPath>();
-		private readonly ImmutableArray<MergeInOutPath>.Builder mergeJobsBuilder = ImmutableArray.CreateBuilder<MergeInOutPath>();
-		private readonly SortedSet<InOutPath> mergeRequests = new SortedSet<InOutPath>(new A3SD_File_Worker_InOutPath.SortOutputThenInputAscendingHelper());
+	public class FileMergerAsync {
+		public bool cleanOutput = true;
+		public int concurrentTasks = 6;
+		public int RWBufferSize = 32_768;
 		private readonly List<InOutPath> directoryJobs = new List<InOutPath>();
+		private readonly SortedSet<InOutPath> mergeRequests = new SortedSet<InOutPath>(new A3SD_File_Worker_InOutPath.SortOutputThenInputAscendingHelper());
+		private readonly ImmutableArray<MergeInOutPath>.Builder mergeJobsBuilder = ImmutableArray.CreateBuilder<MergeInOutPath>();
+		private ImmutableArray<MergeInOutPath> mergeJobs = new ImmutableArray<MergeInOutPath>();
 		private int mergeJobIndex = -1;
-
-		public FileMergeWorkerAsync(bool CleanOutput = true, int concurrentTasks = 6, int readWriteStreamBufferSize = 32_768) {
-			this.CleanOutput = CleanOutput;
-			this.concurrentTasks = concurrentTasks;
-			this.readWriteStreamBufferSize = readWriteStreamBufferSize;
-		}
 
 		public void ApplyLargeCopyOptimisationPreset() {
 			concurrentTasks = 2;
-			readWriteStreamBufferSize = 16_777_216;
+			RWBufferSize = 16_777_216;
 		}
 
-		public async Task StartJobs(CancellationToken cancel) {
+		public async Task MergeAsync(CancellationToken cancel) {
 			{
 				foreach (InOutPath job in directoryJobs) {
 					DirectoryInfo sourceDir = new DirectoryInfo(job.input);
@@ -60,56 +54,54 @@ namespace A3SD_File_Worker {
 			}
 			Task[] ThreadedTasks = new Task[concurrentTasks];
 			for (int i = 0; i < concurrentTasks; i++) {
-				ThreadedTasks[i] = CreateMergeTask(cancel);
+				ThreadedTasks[i] = MergeTask(cancel);
 			}
 			await Task.WhenAll(ThreadedTasks);
 			mergeJobs.Clear();
 		}
 
-		public void EnqueueJob(string source, string output) => EnqueueJob(new InOutPath(source, output));
-		public void EnqueueJob(InOutPath job) {
+		public void Add(string source, string output) => Add(new InOutPath(source, output));
+		public void Add(InOutPath job) {
 			if (File.Exists(job.output)) {
-				EnqueueFileJob(job);
+				AddFile(job);
 			} else if (Directory.Exists(job.input)) {
-				EnqueueDirectoryJob(job);
+				AddDirectory(job);
 			} else {
 				throw new DirectoryNotFoundException("Could not find Directory/File '" + job.input + "'");
 			}
 		}
 
-		public void EnqueueDirectoryJob(string source, string output) => EnqueueDirectoryJob(new InOutPath(source, output));
-		public void EnqueueDirectoryJob(InOutPath job) {
+		public void AddDirectory(string source, string output) => AddDirectory(new InOutPath(source, output));
+		public void AddDirectory(InOutPath job) {
 			directoryJobs.Add(job);
 			foreach (FileInfo file in new DirectoryInfo(job.input).EnumerateFiles("*", new EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = true })) {
-				EnqueueFileJob(new InOutPath(file.FullName, Path.Combine(job.output, Path.GetRelativePath(job.input, file.FullName))));
+				AddFile(new InOutPath(file.FullName, Path.Combine(job.output, Path.GetRelativePath(job.input, file.FullName))));
 			}
 		}
 
-		public void EnqueueFileJob(string source, string output, bool createDirectory = false) => EnqueueFileJob(new InOutPath(source, output), createDirectory);
-		public void EnqueueFileJob(InOutPath job, bool createDirectory = false) {
-			if (createDirectory) Directory.CreateDirectory(Path.GetDirectoryName(job.output));
+		public void AddFile(string source, string output) => AddFile(new InOutPath(source, output));
+		public void AddFile(InOutPath job) {
 			mergeRequests.Add(job);
 		}
 
 		private bool GetJob(out MergeInOutPath job) {
 			int index = Interlocked.Increment(ref mergeJobIndex);
-			if (index < mergeJobs.Length) {
-				job = mergeJobs[index];
-				return true;
-			} else {
+			if (index >= mergeJobs.Length) {
 				job = new MergeInOutPath();
 				return false;
 			}
+			job = mergeJobs[index];
+			return true;
 		}
 
-		private async Task CreateMergeTask(CancellationToken cancel) {
+		private async Task MergeTask(CancellationToken cancel) {
 			while (!cancel.IsCancellationRequested && GetJob(out MergeInOutPath mergeJob)) {
-				if (CleanOutput && File.Exists(mergeJob.output)) {
+				if (cleanOutput && File.Exists(mergeJob.output)) {
 					File.Delete(mergeJob.output);
 				}
-				using FileStream writer = new FileStream(mergeJob.output, FileMode.Append, FileAccess.Write, FileShare.None, readWriteStreamBufferSize, true);
+				using FileStream writer = new FileStream(mergeJob.output, FileMode.Append, FileAccess.Write, FileShare.None, RWBufferSize, true);
 				foreach (string input in mergeJob.inputs) {
-					using FileStream reader = new FileStream(input, FileMode.Open, FileAccess.Read, FileShare.Read, readWriteStreamBufferSize, true);
+					using FileStream reader = new FileStream(input, FileMode.Open, FileAccess.Read, FileShare.Read, RWBufferSize, true);
 					await reader.CopyToAsync(writer, cancel);
 					await reader.DisposeAsync();
 				}

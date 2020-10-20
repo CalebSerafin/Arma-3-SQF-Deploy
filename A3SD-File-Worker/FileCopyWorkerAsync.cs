@@ -4,8 +4,8 @@
 // </copyright>
 
 using A3SD_File_Worker_InOutPath;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,7 +15,10 @@ namespace A3SD_File_Worker {
 		public bool ReplaceAll;
 		public int concurrentTasks;
 		public int readWriteStreamBufferSize;
-		private readonly ConcurrentQueue<InOutPath> copyJobs = new ConcurrentQueue<InOutPath>();
+		private ImmutableArray<InOutPath> copyJobs = new ImmutableArray<InOutPath>();
+		private readonly ImmutableArray<InOutPath>.Builder copyJobsBuilder = ImmutableArray.CreateBuilder<InOutPath>();
+		private int copyJobIndex = -1;
+
 		private readonly List<InOutPath> directoryJobs = new List<InOutPath>();
 
 		public FileCopyWorkerAsync(bool ReplaceAll = false, int concurrentTasks = 6, int readWriteStreamBufferSize = 32_768) {
@@ -30,6 +33,8 @@ namespace A3SD_File_Worker {
 		}
 
 		public async Task StartJobs(CancellationToken cancel) {
+			copyJobs = copyJobsBuilder.ToImmutable();
+			copyJobsBuilder.Clear();
 			foreach (InOutPath job in directoryJobs) {
 				DirectoryInfo sourceDir = new DirectoryInfo(job.input);
 				foreach (DirectoryInfo dir in sourceDir.EnumerateDirectories("*", new EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = true })) {
@@ -67,12 +72,23 @@ namespace A3SD_File_Worker {
 		public void EnqueueFileJob(InOutPath job, bool createDirectory = false) {
 			if (ReplaceAll || new FileInfo(job.input).LastWriteTime > new FileInfo(job.output).LastWriteTime) {
 				if (createDirectory) Directory.CreateDirectory(Path.GetDirectoryName(job.output));
-				copyJobs.Enqueue(job);
+				copyJobsBuilder.Add(job);
+			}
+		}
+
+		private bool GetJob (out InOutPath job) {
+			int index = Interlocked.Increment(ref copyJobIndex);
+			if (index < copyJobs.Length) {
+				job = copyJobs[index];
+				return true;
+			} else {
+				job = new InOutPath();
+				return false;
 			}
 		}
 
 		private async Task CreateCopyTask(CancellationToken cancel) {
-			while (!cancel.IsCancellationRequested && copyJobs.TryDequeue(out InOutPath job)) {
+			while (!cancel.IsCancellationRequested && GetJob(out InOutPath job)) {
 				using FileStream reader = new FileStream(job.input, FileMode.Open, FileAccess.Read, FileShare.Read, readWriteStreamBufferSize, true);
 				using FileStream writer = new FileStream(job.output, FileMode.Create, FileAccess.Write, FileShare.None, readWriteStreamBufferSize, true);
 				await reader.CopyToAsync(writer, cancel);

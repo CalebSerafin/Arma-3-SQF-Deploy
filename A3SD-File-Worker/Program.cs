@@ -40,27 +40,31 @@ namespace A3SD_File_Worker {
 			Stopwatch s = new Stopwatch();
 			CancellationTokenSource cancel = new CancellationTokenSource();
 
-			for (int i = 0; i < 10; i++) {
+			for (int i = 0; i < 5; i++) {
 				FileCopyWorkerAsync fileCopier = new FileCopyWorkerAsync();
-				FileCopyWorkerAsync fileMerger = new FileCopyWorkerAsync();
+				FileMergeWorkerAsync fileMerger = new FileMergeWorkerAsync();
 
 				s.Restart();
 				fileCopier.EnqueueJob(sourcePath, outputPath);
+				s.Stop();
 				Console.WriteLine($"fileCopier enqueue time: {s.ElapsedMilliseconds}ms");
 
 				s.Restart();
 				await fileCopier.StartJobs(cancel.Token);
+				s.Stop();
 				Console.WriteLine($"fileCopier run time: {s.ElapsedMilliseconds}ms");
-				//new DirectoryInfo(outputPath).Delete(true);
+				new DirectoryInfo(outputPath).Delete(true);
 
 				s.Restart();
 				fileMerger.EnqueueJob(sourcePath, outputPath);
+				s.Stop();
 				Console.WriteLine($"fileMerger enqueue time: {s.ElapsedMilliseconds}ms");
 
 				s.Restart();
 				await fileMerger.StartJobs(cancel.Token);
+				s.Stop();
 				Console.WriteLine($"fileMerger run time: {s.ElapsedMilliseconds}ms");
-				//new DirectoryInfo(outputPath).Delete(true);
+				new DirectoryInfo(outputPath).Delete(true);
 
 			}
 			s.Stop();

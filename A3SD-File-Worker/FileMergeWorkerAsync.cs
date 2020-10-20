@@ -5,8 +5,9 @@
 
 using A3SD_File_Worker_InOutPath;
 using A3SD_File_Worker_MergeInOutPath;
-using System.Collections.Concurrent;
+using System.Buffers;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -17,9 +18,11 @@ namespace A3SD_File_Worker {
 		public bool CleanOutput;
 		public int concurrentTasks;
 		public int readWriteStreamBufferSize;
-		private readonly ConcurrentQueue<MergeInOutPath> mergeJobs = new ConcurrentQueue<MergeInOutPath>();
+		private ImmutableArray<MergeInOutPath> mergeJobs = new ImmutableArray<MergeInOutPath>();
+		private readonly ImmutableArray<MergeInOutPath>.Builder mergeJobsBuilder = ImmutableArray.CreateBuilder<MergeInOutPath>();
 		private readonly SortedSet<InOutPath> mergeRequests = new SortedSet<InOutPath>(new A3SD_File_Worker_InOutPath.SortOutputThenInputAscendingHelper());
 		private readonly List<InOutPath> directoryJobs = new List<InOutPath>();
+		private int mergeJobIndex = -1;
 
 		public FileMergeWorkerAsync(bool CleanOutput = true, int concurrentTasks = 6, int readWriteStreamBufferSize = 32_768) {
 			this.CleanOutput = CleanOutput;
@@ -47,11 +50,13 @@ namespace A3SD_File_Worker {
 				int indexStart = 0;
 				for (int i = 0; i < mergeRequest.Length; i++) {
 					if (!mergeRequest[i].Equals(last)) {
-						mergeJobs.Enqueue(new MergeInOutPath(mergeRequest[indexStart..(i + 1)]));
+						mergeJobsBuilder.Add(new MergeInOutPath(mergeRequest[indexStart..(i + 1)]));
 						indexStart = i + 1;
 					}
 					last = mergeRequest[i];
-				} 
+				}
+				mergeJobs = mergeJobsBuilder.ToImmutable();
+				mergeJobsBuilder.Clear();
 			}
 			Task[] ThreadedTasks = new Task[concurrentTasks];
 			for (int i = 0; i < concurrentTasks; i++) {
@@ -86,8 +91,19 @@ namespace A3SD_File_Worker {
 			mergeRequests.Add(job);
 		}
 
+		private bool GetJob(out MergeInOutPath job) {
+			int index = Interlocked.Increment(ref mergeJobIndex);
+			if (index < mergeJobs.Length) {
+				job = mergeJobs[index];
+				return true;
+			} else {
+				job = new MergeInOutPath();
+				return false;
+			}
+		}
+
 		private async Task CreateMergeTask(CancellationToken cancel) {
-			while (!cancel.IsCancellationRequested && mergeJobs.TryDequeue(out MergeInOutPath mergeJob)) {
+			while (!cancel.IsCancellationRequested && GetJob(out MergeInOutPath mergeJob)) {
 				if (CleanOutput && File.Exists(mergeJob.output)) {
 					File.Delete(mergeJob.output);
 				}
